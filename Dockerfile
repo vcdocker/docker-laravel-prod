@@ -1,70 +1,74 @@
-FROM php:7.2-fpm-alpine
-LABEL Maintainer="Hieupv <hieupv@codersvn.com>" \
-  Description="Lightweight container with Nginx & PHP-FPM for Laravel based on Alpine Linux."
+FROM php:7.2-fpm-alpine3.8
 
-RUN apk --update add wget \
-  curl \
-  git \
-  grep \
-  build-base \
-  libmemcached-dev \
-  libmcrypt-dev \
+LABEL Maintainer Hieupv <hieupv@codersvn.com>
+
+# Add Repositories
+RUN rm -f /etc/apk/repositories &&\ 
+  echo "http://dl-cdn.alpinelinux.org/alpine/v3.8/main" >> /etc/apk/repositories && \
+  echo "http://dl-cdn.alpinelinux.org/alpine/v3.8/community" >> /etc/apk/repositories
+
+RUN apk add --no-cache \
+  bash \
+  git
+
+# Add Build Dependencies
+RUN apk add --no-cache --virtual .build-deps  \
+  zlib-dev \
+  libjpeg-turbo-dev \
+  libpng-dev \
   libxml2-dev \
-  imagemagick-dev \
-  pcre-dev \
-  libtool \
-  make \
-  autoconf \
-  g++ \
-  cyrus-sasl-dev \
-  libgsasl-dev \
+  bzip2-dev
+
+# Add Production Dependencies
+RUN apk add --update --no-cache \
+  jpegoptim \ 
+  pngquant \ 
+  optipng \
   supervisor \
-  nginx
+  nano \
+  icu-dev \
+  freetype-dev \
+  nginx \ 
+  mysql-client
 
-RUN docker-php-ext-install mysqli mbstring pdo pdo_mysql tokenizer xml
-RUN pecl channel-update pecl.php.net \
-  && pecl install memcached \
-  && pecl install imagick \
-  && pecl install mcrypt-1.0.1 \
-  && docker-php-ext-enable memcached \
-  && docker-php-ext-enable imagick \
-  && docker-php-ext-enable mcrypt
+# Configure & Install Extension
+RUN docker-php-ext-configure \
+  opcache --enable-opcache &&\
+  docker-php-ext-configure gd --with-freetype-dir=/usr/include/ --with-jpeg-dir=/usr/include/ &&\
+  docker-php-ext-install \ 
+  opcache \ 
+  mysqli \ 
+  pdo \ 
+  pdo_mysql \ 
+  sockets \ 
+  json \
+  intl \
+  gd \
+  xml \
+  zip \
+  bz2 \
+  pcntl \
+  bcmath
 
-# Configure nginx
-COPY docker/nginx/nginx.conf /etc/nginx/nginx.conf
+# Add Composer
+RUN curl -s https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin/ --filename=composer 
+ENV COMPOSER_ALLOW_SUPERUSER=1
+ENV PATH="./vendor/bin:$PATH"
 
-# Configure PHP-FPM
-COPY docker/php/fpm-pool.conf /etc/php7/php-fpm.d/www.conf
-COPY docker/php/php.ini-production /etc/php7/php.ini
+COPY ./.docker/script/script.sh /usr/bin/appup
+RUN chmod +x /usr/bin/appup
 
-RUN curl -o /usr/bin/composer https://getcomposer.org/composer.phar
+COPY ./.docker/php/opcache.ini $PHP_INI_DIR/conf.d/
+COPY ./.docker/php/php.ini $PHP_INI_DIR/conf.d/
 
-RUN chmod +x /usr/bin/composer
+# Setup Crond and Supervisor by default
+RUN echo '*  *  *  *  * /usr/local/bin/php  /var/www/app/artisan schedule:run >> /dev/null 2>&1' > /etc/crontabs/root && mkdir /etc/supervisor.d 
+ADD ./.docker/supervisor/master.ini /etc/supervisor.d/
+ADD ./.docker/nginx/default.conf /etc/nginx/conf.d/ 
 
-# Configure supervisord
-COPY docker/supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+# Remove Build Dependencies
+RUN apk del -f .build-deps
+# Setup Working Dir
+WORKDIR /var/www
 
-# Make sure files/folders needed by the processes are accessable when they run under the nobody user
-RUN chown -R nobody.nobody /run && \
-  chown -R nobody.nobody /var/lib/nginx && \
-  chown -R nobody.nobody /var/tmp/nginx && \
-  chown -R nobody.nobody /var/log/nginx 
-
-# Setup document root
-RUN mkdir -p /var/www/app
-
-# Switch to use a non-root user from here on
-USER nobody
-
-# Add application
-WORKDIR /var/www/app
-COPY --chown=nobody . /var/www/app/
-
-# Expose the port nginx is reachable on
-EXPOSE 8080
-
-# Let supervisord start nginx & php-fpm
-ENTRYPOINT ["/usr/bin/supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
-
-# Configure a healthcheck to validate that everything is up&running
-# HEALTHCHECK --timeout=10s CMD curl --silent --fail http://127.0.0.1:8080/fpm-ping
+CMD ["/usr/bin/supervisord"]
