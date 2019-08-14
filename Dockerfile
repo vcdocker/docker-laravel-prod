@@ -68,7 +68,12 @@ ADD ./.docker/nginx/default.conf /etc/nginx/conf.d/
 
 # Remove Build Dependencies
 RUN apk del -f .build-deps
+
 # Setup Working Dir
-WORKDIR /var/www
+RUN mkdir -p /var/www/app/storage/logs
+RUN mkdir /var/www/app/.config
+RUN touch /var/www/app/artisan
+WORKDIR /var/www/app
+
 
 CMD ["/usr/bin/supervisord"]
