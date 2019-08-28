@@ -61,19 +61,28 @@ RUN chmod +x /usr/bin/appup
 COPY ./.docker/php/opcache.ini $PHP_INI_DIR/conf.d/
 COPY ./.docker/php/php.ini $PHP_INI_DIR/conf.d/
 
-# Setup Crond and Supervisor by default
-RUN echo '*  *  *  *  * /usr/local/bin/php  /var/www/app/artisan schedule:run >> /dev/null 2>&1' > /etc/crontabs/root && mkdir /etc/supervisor.d 
 ADD ./.docker/supervisor/master.ini /etc/supervisor.d/
+ADD ./.docker/nginx/nginx.conf /etc/nginx/nginx.conf
 ADD ./.docker/nginx/default.conf /etc/nginx/conf.d/ 
 
 # Remove Build Dependencies
 RUN apk del -f .build-deps
 
 # Setup Working Dir
-RUN mkdir -p /var/www/app/storage/logs
-RUN mkdir /var/www/app/.config
-RUN touch /var/www/app/artisan
+RUN mkdir -p /var/www/app
+RUN mkdir -p /var/run
+
+RUN apk update && \
+  apk add mysql mysql-client && \
+  addgroup mysql mysql && \
+  rm -rf /var/cache/apk/*
+
 WORKDIR /var/www/app
 
+COPY docker-entrypoint.sh /usr/local/bin/
 
-CMD ["/usr/bin/supervisord"]
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+ENTRYPOINT ["docker-entrypoint.sh"]
+
+CMD ["supervisord"]
