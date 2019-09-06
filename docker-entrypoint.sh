@@ -17,7 +17,7 @@ file_env() {
 	if [ "${!var:-}" ]; then
 		val="${!var}"
 	elif [ "${!fileVar:-}" ]; then
-		val="$(< "${!fileVar}")"
+		val="$(<"${!fileVar}")"
 	fi
 	export "$var"="$val"
 	unset "$fileVar"
@@ -26,25 +26,24 @@ file_env() {
 if [[ "$1" == apache2* ]] || [ "$1" == php-fpm ] || [ "$1" == supervisord ]; then
 	if [ "$(id -u)" = '0' ]; then
 		case "$1" in
-			apache2*)
-				user="${APACHE_RUN_USER:-www-data}"
-				group="${APACHE_RUN_GROUP:-www-data}"
+		apache2*)
+			user="${APACHE_RUN_USER:-www-data}"
+			group="${APACHE_RUN_GROUP:-www-data}"
 
-				# strip off any '#' symbol ('#1000' is valid syntax for Apache)
-				pound='#'
-				user="${user#$pound}"
-				group="${group#$pound}"
-				;;
-			*) # php-fpm
-				user='www-data'
-				group='www-data'
-				;;
+			# strip off any '#' symbol ('#1000' is valid syntax for Apache)
+			pound='#'
+			user="${user#$pound}"
+			group="${group#$pound}"
+			;;
+		*) # php-fpm
+			user='www-data'
+			group='www-data'
+			;;
 		esac
 	else
 		user="$(id -u)"
 		group="$(id -g)"
 	fi
-
 
 	if [ ! -e index.php ] && [ ! -e wp-includes/version.php ]; then
 		# if the directory exists and WordPress doesn't appear to be installed AND the permissions of it are root:root, let's chown it (likely a Docker-created directory)
@@ -69,15 +68,15 @@ if [[ "$1" == apache2* ]] || [ "$1" == php-fpm ] || [ "$1" == supervisord ]; the
 		)
 		if [ "$user" != '0' ]; then
 			# avoid "tar: .: Cannot utime: Operation not permitted" and "tar: .: Cannot change mode to rwxr-xr-x: Operation not permitted"
-			targetTarArgs+=( --no-overwrite-dir )
+			targetTarArgs+=(--no-overwrite-dir)
 		fi
 
-        curl -L https://github.com/WordPress/WordPress/archive/5.2.2.tar.gz | tar -xz --strip-components=1 -C $(pwd)
+		curl -L https://github.com/WordPress/WordPress/archive/5.2.2.tar.gz | tar -xz --strip-components=1 -C $(pwd)
 
 		echo >&2 "Complete! WordPress has been successfully copied to $PWD"
 		if [ ! -e .htaccess ]; then
 			# NOTE: The "Indexes" option is disabled in the php:apache base image
-			cat > .htaccess <<-'EOF'
+			cat >.htaccess <<-'EOF'
 				# BEGIN WordPress
 				<IfModule mod_rewrite.c>
 				RewriteEngine On
@@ -90,8 +89,8 @@ if [[ "$1" == apache2* ]] || [ "$1" == php-fpm ] || [ "$1" == supervisord ]; the
 				# END WordPress
 			EOF
 		fi
-        
-        chown -R "$user:$group" .
+
+		chown -R "$user:$group" .
 	fi
 
 	# allow any of these "Authentication Unique Keys and Salts." to be specified via
@@ -126,7 +125,6 @@ if [[ "$1" == apache2* ]] || [ "$1" == php-fpm ] || [ "$1" == supervisord ]; the
 		fi
 	done
 
-
 	# only touch "wp-config.php" if we have environment-supplied configuration values
 	if [ "$haveConfig" ]; then
 		: "${DB_HOST:=mysql}"
@@ -152,7 +150,7 @@ if [[ "$1" == apache2* ]] || [ "$1" == php-fpm ] || [ "$1" == supervisord ]; the
 					}
 				}
 				{ print }
-			' wp-config-sample.php > wp-config.php <<'EOPHP'
+			' wp-config-sample.php >wp-config.php <<'EOPHP'
 // If we're behind a proxy server and using HTTPS, we need to alert Wordpress of that fact
 // see also http://codex.wordpress.org/Administration_Over_SSL#Using_a_Reverse_Proxy
 if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') {
@@ -161,7 +159,7 @@ if (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROT
 
 EOPHP
 			chown "$user:$group" wp-config.php
-		elif [ -e wp-config.php ] && [ -n "$WORDPRESS_CONFIG_EXTRA" ] && [[ "$(< wp-config.php)" != *"$WORDPRESS_CONFIG_EXTRA"* ]]; then
+		elif [ -e wp-config.php ] && [ -n "$WORDPRESS_CONFIG_EXTRA" ] && [[ "$(<wp-config.php)" != *"$WORDPRESS_CONFIG_EXTRA"* ]]; then
 			# (if the config file already contains the requested PHP code, don't print a warning)
 			echo >&2
 			echo >&2 'WARNING: environment variable "WORDPRESS_CONFIG_EXTRA" is set, but "wp-config.php" already exists'
@@ -197,12 +195,36 @@ EOPHP
 			sed -ri -e "s/($start\s*).*($end)$/\1$(sed_escape_rhs "$(php_escape "$value" "$var_type")")\3/" wp-config.php
 		}
 
-		set_config 'DB_HOST' "$DB_HOST"
-		set_config 'DB_USER' "$MYSQL_USER"
-		set_config 'DB_PASSWORD' "$MYSQL_PASSWORD"
-		set_config 'DB_NAME' "$MYSQL_DATABASE"
-		set_config 'DB_CHARSET' "$WORDPRESS_DB_CHARSET"
-		set_config 'DB_COLLATE' "$WORDPRESS_DB_COLLATE"
+		if [ -z "$DB_HOST" ]; then
+			echo "\$DB_HOST is empty"
+		else
+			wp config set DB_HOST "$DB_HOST" --allow-root
+		fi
+		if [ -z "$MYSQL_USER" ]; then
+			echo "\$MYSQL_USER is empty"
+		else
+			wp config set DB_USER "$MYSQL_USER" --allow-root
+		fi
+		if [ -z "$MYSQL_PASSWORD" ]; then
+			echo "\$MYSQL_PASSWORD is empty"
+		else
+			wp config set DB_PASSWORD "$MYSQL_PASSWORD" --allow-root
+		fi
+		if [ -z "$MYSQL_DATABASE" ]; then
+			echo "\$MYSQL_DATABASE is empty"
+		else
+			wp config set DB_NAME "$MYSQL_DATABASE" --allow-root
+		fi
+		if [ -z "$WORDPRESS_DB_CHARSET" ]; then
+			echo "\$WORDPRESS_DB_CHARSET is empty"
+		else
+			wp config set DB_CHARSET "$WORDPRESS_DB_CHARSET" --allow-root
+		fi
+		if [ -z "$WORDPRESS_DB_COLLATE" ]; then
+			echo "\$WORDPRESS_DB_COLLATE is empty"
+		else
+			wp config set DB_COLLATE "$WORDPRESS_DB_COLLATE" --allow-root
+		fi
 
 		for unique in "${uniqueEnvs[@]}"; do
 			uniqVar="WORDPRESS_$unique"
@@ -225,52 +247,59 @@ EOPHP
 			set_config 'WP_DEBUG' 1 boolean
 		fi
 
-		if ! TERM=dumb php -- <<'EOPHP'
-<?php
-// database might not exist, so let's try creating it (just to be safe)
-
-$stderr = fopen('php://stderr', 'w');
-
-$host = getenv('DB_HOST');
-echo $host;
-$port = getenv('MYSQL_PORT');
-if($port === false) {
-	$port = 3306;
-}
-echo $port;
-
-$user = getenv('MYSQL_USER');
-$pass = getenv('MYSQL_PASSWORD');
-$dbName = getenv('MYSQL_DATABASE');
-
-$maxTries = 10;
-do {
-	$mysql = new mysqli($host, $user, $pass, '', $port);
-	if ($mysql->connect_error) {
-		fwrite($stderr, "\n" . 'MySQL Connection Error: (' . $mysql->connect_errno . ') ' . $mysql->connect_error . "\n");
-		--$maxTries;
-		if ($maxTries <= 0) {
-			exit(1);
-		}
-		sleep(3);
-	}
-} while ($mysql->connect_error);
-
-if (!$mysql->query('CREATE DATABASE IF NOT EXISTS `' . $mysql->real_escape_string($dbName) . '`')) {
-	fwrite($stderr, "\n" . 'MySQL "CREATE DATABASE" Error: ' . $mysql->error . "\n");
-	$mysql->close();
-	exit(1);
-}
-
-$mysql->close();
-EOPHP
-		then
-			echo >&2
-			echo >&2 "WARNING: unable to establish a database connection to '$DB_HOST'"
-			echo >&2 '  continuing anyways (which might have unexpected results)'
-			echo >&2
-		fi
 	fi
+
+	# Wait for database service is ready
+	{
+		i=0
+		while [ $i -lt 10 ]; do
+			{
+				wp db check --allow-root
+				if [ $? -eq 0 ]; then
+					echo "Database connected"
+					break
+				else
+					echo "Wrong database credentials or database is not ready"
+					echo "retry in 5s ..."
+				fi
+			} || {
+				echo SKIP
+			}
+			((i++))
+			sleep 5
+		done
+
+	} || {
+		echo SKIP
+	}
+
+	# Import initial database
+	{
+		wp db tables --allow-root
+		if [ $? -eq 0 ]; then
+			echo "Database exist"
+			echo "Skip import database"
+		else
+			echo "Database is empty"
+			echo "Import database ..."
+			if [ -d "database" -a ! -h "database" ]; then
+				FILE=$(ls database | head -1)
+				if [ -e database/"$FILE" ]; then
+					rm -f "$MYSQL_DATABASE"*
+					FILENAME="${FILE%%.*}"
+					FILE_EXTENSION="${FILE#*.}"
+					cp database/"$FILE" "$MYSQL_DATABASE"."$FILE_EXTENSION"
+					wp db import --allow-root
+					rm -f "$MYSQL_DATABASE"."$FILE_EXTENSION"
+
+					SITE_URL=$(wp option get siteurl --allow-root)
+					wp search-replace "$SITE_URL" "$VC_APP_DOMAIN" --allow-root
+				fi
+			fi
+		fi
+	} || {
+		echo SKIP
+	}
 
 	# now that we're definitely done writing configuration, let's clear out the relevant envrionment variables (so that stray "phpinfo()" calls don't leak secrets from our code)
 	for e in "${envs[@]}"; do

@@ -62,7 +62,6 @@ COPY ./.docker/php/opcache.ini $PHP_INI_DIR/conf.d/
 COPY ./.docker/php/php.ini $PHP_INI_DIR/conf.d/
 
 ADD ./.docker/supervisor/master.ini /etc/supervisor.d/
-ADD ./.docker/nginx/nginx.conf /etc/nginx/nginx.conf
 ADD ./.docker/nginx/default.conf /etc/nginx/conf.d/ 
 
 # Remove Build Dependencies
@@ -72,16 +71,17 @@ RUN apk del -f .build-deps
 RUN mkdir -p /var/www/app
 RUN mkdir -p /var/run
 
-RUN apk update && \
-  apk add mysql mysql-client && \
-  addgroup mysql mysql && \
-  rm -rf /var/cache/apk/*
+RUN curl -o /usr/bin/wp https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar && \
+  chmod +x /usr/bin/wp
 
 WORKDIR /var/www/app
 
 COPY docker-entrypoint.sh /usr/local/bin/
 
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+EXPOSE 80
+VOLUME [ "/var/www/app" ]
 
 ENTRYPOINT ["docker-entrypoint.sh"]
 
